@@ -1,14 +1,21 @@
-from fastapi import FastAPI, Request
 from datetime import datetime, timezone
 import logging
 
+from fastapi import FastAPI, Request
+
+from .analyzer import PrometheusAnalyzer
+
+
 app = FastAPI(
     title="Autonomous Self-Healing AIOps Controller",
-    version="0.1.0",
+    version="0.2.0",
 )
 
 logging.basicConfig(level=logging.INFO)
+
 logger = logging.getLogger("aiops-controller")
+
+prometheus = PrometheusAnalyzer()
 
 
 @app.get("/health")
@@ -34,25 +41,51 @@ async def alertmanager_webhook(request: Request):
         labels = alert.get("labels", {})
         annotations = alert.get("annotations", {})
 
+        alertname = labels.get("alertname")
+        severity = labels.get("severity")
+        service = labels.get("service")
+        status = alert.get("status")
+
         incident = {
-            "alertname": labels.get("alertname"),
-            "severity": labels.get("severity"),
-            "service": labels.get("service"),
-            "status": alert.get("status"),
+            "alertname": alertname,
+            "severity": severity,
+            "service": service,
+            "status": status,
             "summary": annotations.get("summary"),
             "description": annotations.get("description"),
             "startsAt": alert.get("startsAt"),
         }
 
-        incidents.append(incident)
-
         logger.info(
             "Incident received: alert=%s service=%s severity=%s status=%s",
-            incident["alertname"],
-            incident["service"],
-            incident["severity"],
-            incident["status"],
+            alertname,
+            service,
+            severity,
+            status,
         )
+
+        if alertname == "SelfHealingAPIHighErrorRate":
+            try:
+                analysis = await prometheus.analyze(
+                    namespace="self-healing"
+                )
+
+                incident["analysis"] = analysis
+
+                logger.info(
+                    "Prometheus analysis: %s",
+                    analysis,
+                )
+
+            except Exception as exc:
+                logger.exception(
+                    "Prometheus analysis failed: %s",
+                    exc,
+                )
+
+                incident["analysis_error"] = str(exc)
+
+        incidents.append(incident)
 
     return {
         "status": "received",
