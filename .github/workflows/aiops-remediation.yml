@@ -1,0 +1,169 @@
+﻿name: AIOps GitOps Remediation
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_branch:
+        description: "Git branch tracked by Argo CD"
+        required: true
+        type: string
+
+      current_revision:
+        description: "Currently deployed Git revision"
+        required: true
+        type: string
+
+      target_revision:
+        description: "Validated known-good Git revision"
+        required: true
+        type: string
+
+      dry_run:
+        description: "Only validate and report without committing"
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout tracked branch
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source_branch }}
+          fetch-depth: 0
+
+      - name: Show rollback request
+        run: |
+          echo "Source branch:      ${{ inputs.source_branch }}"
+          echo "Current revision:   ${{ inputs.current_revision }}"
+          echo "Target revision:    ${{ inputs.target_revision }}"
+          echo "Dry run:            ${{ inputs.dry_run }}"
+
+      - name: Validate revisions
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          current="${{ inputs.current_revision }}"
+          target="${{ inputs.target_revision }}"
+
+          git fetch origin \
+            "${{ inputs.source_branch }}"
+
+          echo "Current branch HEAD:"
+          git rev-parse HEAD
+
+          echo "Target revision:"
+          git rev-parse "${target}^{commit}"
+
+          echo "Current revision:"
+          git rev-parse "${current}^{commit}"
+
+          if [[ "$current" == "$target" ]]; then
+            echo "ERROR: target revision equals current revision."
+            exit 1
+          fi
+
+          if ! git merge-base --is-ancestor "$target" "$current"; then
+            echo "ERROR: target revision is not an ancestor of current revision."
+            exit 1
+          fi
+
+          echo "Revision validation passed."
+
+      - name: Validate rollback scope
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          current="${{ inputs.current_revision }}"
+          target="${{ inputs.target_revision }}"
+
+          echo "Changed files between target and current:"
+          git diff --name-status "$target" "$current"
+
+          changed_files="$(git diff --name-only "$target" "$current")"
+
+          if [[ -z "$changed_files" ]]; then
+            echo "ERROR: no changes exist between target and current."
+            exit 1
+          fi
+
+          while IFS= read -r file; do
+            case "$file" in
+              helm/self-healing/values.yaml)
+                ;;
+              *)
+                echo "ERROR: unexpected rollback file: $file"
+                exit 1
+                ;;
+            esac
+          done <<< "$changed_files"
+
+          echo "Rollback scope validation passed."
+
+      - name: Show proposed Helm rollback
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          current="${{ inputs.current_revision }}"
+          target="${{ inputs.target_revision }}"
+
+          echo "Current values:"
+          git show "${current}:helm/self-healing/values.yaml"
+
+          echo
+          echo "Target values:"
+          git show "${target}:helm/self-healing/values.yaml"
+
+          echo
+          echo "Diff:"
+          git diff "$target" "$current" -- helm/self-healing/values.yaml
+
+      - name: Stop after dry run
+        if: inputs.dry_run
+        run: |
+          echo "DRY RUN enabled."
+          echo "No Git commit or push will be performed."
+
+      - name: Apply validated rollback
+        if: ${{ !inputs.dry_run }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          current="${{ inputs.current_revision }}"
+          target="${{ inputs.target_revision }}"
+
+          git restore \
+            --source="$target" \
+            -- helm/self-healing/values.yaml
+
+          echo "Resulting diff:"
+          git diff -- helm/self-healing/values.yaml
+
+      - name: Configure Git
+        if: ${{ !inputs.dry_run }}
+        run: |
+          git config user.name "AIOps Remediation Bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Commit rollback
+        if: ${{ !inputs.dry_run }}
+        run: |
+          git add helm/self-healing/values.yaml
+
+          git commit \
+            -m "revert: restore known-good self-healing configuration"
+
+      - name: Push rollback
+        if: ${{ !inputs.dry_run }}
+        run: |
+          git push origin "HEAD:${{ inputs.source_branch }}"
