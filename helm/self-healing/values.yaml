@@ -1,0 +1,33 @@
+namespace:
+  name: self-healing
+
+replicaCount: 2
+
+image:
+  repository: self-healing-api
+  tag: v1
+  pullPolicy: IfNotPresent
+
+app:
+  version: v1
+  failureRate: "0"
+
+service:
+  type: ClusterIP
+  port: 8000
+  targetPort: 8000
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+monitoring:
+  serviceMonitor:
+    enabled: true
+    interval: 15s
+    labels:
+      release: prometheus

@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: self-healing-api
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    app: self-healing-api
+spec:
+  replicas: {{ .Values.replicaCount }}
+  revisionHistoryLimit: 5
+
+  selector:
+    matchLabels:
+      app: self-healing-api
+
+  template:
+    metadata:
+      labels:
+        app: self-healing-api
+
+    spec:
+      containers:
+        - name: api
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+
+          ports:
+            - containerPort: 8000
+              name: http
+
+          env:
+            - name: APP_VERSION
+              value: "{{ .Values.app.version }}"
+
+            - name: FAILURE_RATE
+              value: "{{ .Values.app.failureRate }}"
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
+          resources:
+{{ toYaml .Values.resources | indent 12 }}

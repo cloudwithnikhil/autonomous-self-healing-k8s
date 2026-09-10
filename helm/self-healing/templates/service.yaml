@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: self-healing-api
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    app: self-healing-api
+spec:
+  selector:
+    app: self-healing-api
+
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: {{ .Values.service.targetPort }}
+
+  type: {{ .Values.service.type }}

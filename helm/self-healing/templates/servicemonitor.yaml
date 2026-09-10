@@ -1,0 +1,19 @@
+{{- if .Values.monitoring.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: self-healing-api
+  namespace: {{ .Values.namespace.name }}
+  labels:
+{{ toYaml .Values.monitoring.serviceMonitor.labels | indent 4 }}
+
+spec:
+  selector:
+    matchLabels:
+      app: self-healing-api
+
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.monitoring.serviceMonitor.interval }}
+{{- end }}
