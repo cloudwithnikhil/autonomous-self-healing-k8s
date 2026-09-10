@@ -4,11 +4,12 @@ import logging
 from fastapi import FastAPI, Request
 
 from .analyzer import PrometheusAnalyzer
-
+from .k8s_analyzer import KubernetesAnalyzer
+from .decision import DecisionEngine
 
 app = FastAPI(
-    title="Autonomous Self-Healing AIOps Controller",
-    version="0.2.0",
+title="Autonomous Self-Healing AIOps Controller",
+version="0.4.0",
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -16,16 +17,16 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("aiops-controller")
 
 prometheus = PrometheusAnalyzer()
-
+kubernetes = KubernetesAnalyzer()
+decision_engine = DecisionEngine()
 
 @app.get("/health")
 def health():
     return {
-        "status": "healthy",
-        "service": "aiops-controller",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+    "status": "healthy",
+    "service": "aiops-controller",
+    "timestamp": datetime.now(timezone.utc).isoformat(),
     }
-
 
 @app.post("/webhook/alertmanager")
 async def alertmanager_webhook(request: Request):
@@ -65,6 +66,10 @@ async def alertmanager_webhook(request: Request):
         )
 
         if alertname == "SelfHealingAPIHighErrorRate":
+
+            # -----------------------------------------
+            # Stage 2B: Prometheus analysis
+            # -----------------------------------------
             try:
                 analysis = await prometheus.analyze(
                     namespace="self-healing"
@@ -85,6 +90,59 @@ async def alertmanager_webhook(request: Request):
 
                 incident["analysis_error"] = str(exc)
 
+            # -----------------------------------------
+            # Stage 2C: Kubernetes analysis
+            # -----------------------------------------
+            try:
+                k8s_analysis = kubernetes.analyze(
+                    namespace="self-healing",
+                    deployment_name="self-healing-api",
+                    label_selector="app=self-healing-api",
+                )
+
+                incident["kubernetes"] = k8s_analysis
+
+                logger.info(
+                    "Kubernetes analysis: %s",
+                    k8s_analysis,
+                )
+
+                # -----------------------------------------
+                # Stage 2D: Confidence-based decision
+                # -----------------------------------------
+                error_rate = None
+
+                if "analysis" in incident:
+                    error_rate = incident["analysis"].get(
+                        "error_rate"
+                    )
+
+                decision = decision_engine.evaluate(
+                    alert_status=status,
+                    error_rate=error_rate,
+                    kubernetes_analysis=k8s_analysis,
+                )
+
+                incident["decision"] = {
+                    "decision": decision.decision,
+                    "confidence": decision.confidence,
+                    "reasons": decision.reasons,
+                }
+
+                logger.info(
+                    "Decision: %s confidence=%.3f",
+                    decision.decision,
+                    decision.confidence,
+                )
+
+            except Exception as exc:
+                logger.exception(
+                    "Kubernetes analysis or decision evaluation failed: %s",
+                    exc,
+                )
+
+                incident["kubernetes_analysis_error"] = str(exc)
+
         incidents.append(incident)
 
     return {
@@ -92,3 +150,4 @@ async def alertmanager_webhook(request: Request):
         "alerts_received": len(alerts),
         "incidents": incidents,
     }
+
