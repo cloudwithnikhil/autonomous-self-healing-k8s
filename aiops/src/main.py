@@ -6,10 +6,11 @@ from fastapi import FastAPI, Request
 from .analyzer import PrometheusAnalyzer
 from .k8s_analyzer import KubernetesAnalyzer
 from .decision import DecisionEngine
+from .remediation import GitOpsRemediationEngine
 
 app = FastAPI(
 title="Autonomous Self-Healing AIOps Controller",
-version="0.4.0",
+version="0.5.0",
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -19,6 +20,7 @@ logger = logging.getLogger("aiops-controller")
 prometheus = PrometheusAnalyzer()
 kubernetes = KubernetesAnalyzer()
 decision_engine = DecisionEngine()
+remediation_engine = GitOpsRemediationEngine()
 
 @app.get("/health")
 def health():
@@ -128,6 +130,37 @@ async def alertmanager_webhook(request: Request):
                     "confidence": decision.confidence,
                     "reasons": decision.reasons,
                 }
+                if (
+                    decision.decision == "RECOMMEND_ROLLBACK"
+                    and decision.confidence >= 0.80
+                ):
+                    try:
+                        remediation = remediation_engine.plan_rollback()
+
+                        incident["remediation"] = {
+                            "action": remediation.action,
+                            "dry_run": remediation.dry_run,
+                            "current_revision": remediation.current_revision,
+                            "target_revision": remediation.target_revision,
+                            "reason": remediation.reason,
+                            "metadata": remediation.metadata,
+                        }
+
+                        logger.info(
+                            "Remediation plan: action=%s dry_run=%s current=%s target=%s",
+                            remediation.action,
+                            remediation.dry_run,
+                            remediation.current_revision,
+                            remediation.target_revision,
+                        )
+
+                    except Exception as exc:
+                        logger.exception(
+                            "Remediation planning failed: %s",
+                            exc,
+                        )
+
+                        incident["remediation_error"] = str(exc)
 
                 logger.info(
                     "Decision: %s confidence=%.3f",

@@ -1,0 +1,66 @@
+﻿apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aiops-controller
+  namespace: self-healing
+  labels:
+    app: aiops-controller
+
+spec:
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: aiops-controller
+
+  template:
+    metadata:
+      labels:
+        app: aiops-controller
+
+    spec:
+      serviceAccountName: aiops-controller
+
+      containers:
+        - name: aiops
+          image: self-healing-aiops:v8
+          imagePullPolicy: IfNotPresent
+
+          env:
+            - name: PROMETHEUS_URL
+              value: "http://prometheus-kube-prometheus-prometheus.monitoring:9090"
+
+            - name: AIOPS_DRY_RUN
+              value: "true"
+
+            - name: ARGOCD_NAMESPACE
+              value: "argocd"
+
+            - name: ARGOCD_APPLICATION
+              value: "self-healing"
+
+          ports:
+            - name: http
+              containerPort: 8001
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi

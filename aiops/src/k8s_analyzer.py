@@ -9,16 +9,6 @@ class KubernetesAnalyzer:
         except config.ConfigException:
             config.load_kube_config()
 
-        # Local Docker + Kind only.
-        #
-        # The Kind API certificate is issued for 127.0.0.1, while
-        # Docker reaches the Windows host through host.docker.internal.
-        # Disable hostname verification for this local development setup.
-        configuration = client.Configuration.get_default_copy()
-        configuration.verify_ssl = False
-
-        client.Configuration.set_default(configuration)
-
         self.apps_api = client.AppsV1Api()
         self.core_api = client.CoreV1Api()
 
