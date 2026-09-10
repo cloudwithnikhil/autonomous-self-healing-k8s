@@ -18,25 +18,22 @@ class RemediationResult:
     current_revision: str | None
     target_revision: str | None
     reason: str
+    validation: dict[str, bool]
     metadata: dict[str, Any]
 
 
 class GitOpsRemediationEngine:
     """
-    Phase 4A remediation planner.
+    Read-only GitOps remediation planner.
 
-    The planner is intentionally read-only.
+    Phase 4B.1:
+    - Reads the Argo CD Application.
+    - Reads deployment history.
+    - Identifies the previous deployment.
+    - Validates the rollback candidate.
+    - Produces an auditable rollback proposal.
 
-    It:
-    - reads the Argo CD Application
-    - reads Argo CD deployment history
-    - identifies the previous deployed revision
-    - proposes a rollback target
-
-    It does NOT modify:
-    - Git
-    - Argo CD
-    - Kubernetes
+    This class does NOT modify Git, Argo CD, or Kubernetes.
     """
 
     def __init__(self):
@@ -45,12 +42,7 @@ class GitOpsRemediationEngine:
 
     @staticmethod
     def _load_kubernetes_config() -> None:
-        """
-        Prefer in-cluster authentication.
-
-        Fall back to the local kubeconfig when running
-        outside Kubernetes during development.
-        """
+        """Prefer in-cluster authentication with local fallback."""
         try:
             config.load_incluster_config()
         except ConfigException:
@@ -66,7 +58,7 @@ class GitOpsRemediationEngine:
         )
 
     @staticmethod
-    def _get_revision(
+    def _get_current_revision(
         application: dict[str, Any],
     ) -> str | None:
         return (
@@ -88,10 +80,70 @@ class GitOpsRemediationEngine:
 
         return history if isinstance(history, list) else []
 
+    @staticmethod
+    def _find_current_history_entry(
+        history: list[dict[str, Any]],
+        current_revision: str,
+    ) -> dict[str, Any] | None:
+        for entry in history:
+            if entry.get("revision") == current_revision:
+                return entry
+
+        return None
+
+    @staticmethod
+    def _find_previous_entry(
+        history: list[dict[str, Any]],
+        current_revision: str,
+    ) -> dict[str, Any] | None:
+        candidates = [
+            entry
+            for entry in history
+            if entry.get("revision")
+            and entry.get("revision") != current_revision
+        ]
+
+        if not candidates:
+            return None
+
+        # Argo CD history is ordered by deployment history.
+        return candidates[-1]
+
+    @staticmethod
+    def _validate_target(
+        current_revision: str | None,
+        target_entry: dict[str, Any] | None,
+    ) -> tuple[dict[str, bool], str | None]:
+        target_revision = (
+            target_entry.get("revision")
+            if target_entry
+            else None
+        )
+
+        validation = {
+            "current_revision_exists": bool(current_revision),
+            "target_revision_exists": bool(target_revision),
+            "target_differs_from_current": bool(
+                current_revision
+                and target_revision
+                and target_revision != current_revision
+            ),
+            "target_has_deployment_timestamp": bool(
+                target_entry
+                and target_entry.get("deployedAt")
+            ),
+            "target_has_source": bool(
+                target_entry
+                and target_entry.get("source")
+            ),
+        }
+
+        return validation, target_revision
+
     def plan_rollback(self) -> RemediationResult:
         application = self._get_application()
 
-        current_revision = self._get_revision(application)
+        current_revision = self._get_current_revision(application)
         history = self._get_history(application)
 
         if not current_revision:
@@ -103,43 +155,65 @@ class GitOpsRemediationEngine:
                 reason=(
                     "Argo CD does not report a current sync revision."
                 ),
+                validation={
+                    "current_revision_exists": False,
+                    "target_revision_exists": False,
+                    "target_differs_from_current": False,
+                    "target_has_deployment_timestamp": False,
+                    "target_has_source": False,
+                },
                 metadata={
                     "application": ARGOCD_APPLICATION,
                     "argocd_namespace": ARGOCD_NAMESPACE,
-                },
-            )
-
-        candidates = []
-
-        for entry in history:
-            revision = entry.get("revision")
-
-            if not revision:
-                continue
-
-            if revision == current_revision:
-                continue
-
-            candidates.append(entry)
-
-        if not candidates:
-            return RemediationResult(
-                action="NO_ACTION",
-                dry_run=AIOPS_DRY_RUN,
-                current_revision=current_revision,
-                target_revision=None,
-                reason=(
-                    "No previous Argo CD deployment revision "
-                    "is available."
-                ),
-                metadata={
-                    "application": ARGOCD_APPLICATION,
                     "history_count": len(history),
                 },
             )
 
-        previous = candidates[-1]
-        target_revision = previous.get("revision")
+        current_entry = self._find_current_history_entry(
+            history,
+            current_revision,
+        )
+
+        target_entry = self._find_previous_entry(
+            history,
+            current_revision,
+        )
+
+        validation, target_revision = self._validate_target(
+            current_revision=current_revision,
+            target_entry=target_entry,
+        )
+
+        safe_to_propose = all(validation.values())
+
+        if not safe_to_propose:
+            failed_checks = [
+                name
+                for name, passed in validation.items()
+                if not passed
+            ]
+
+            return RemediationResult(
+                action="NO_ACTION",
+                dry_run=AIOPS_DRY_RUN,
+                current_revision=current_revision,
+                target_revision=target_revision,
+                reason=(
+                    "Rollback candidate failed validation: "
+                    + ", ".join(failed_checks)
+                ),
+                validation=validation,
+                metadata={
+                    "application": ARGOCD_APPLICATION,
+                    "argocd_namespace": ARGOCD_NAMESPACE,
+                    "history_count": len(history),
+                    "current_history_id": (
+                        current_entry.get("id")
+                        if current_entry
+                        else None
+                    ),
+                },
+            )
 
         return RemediationResult(
             action="ROLLBACK_PROPOSED",
@@ -147,15 +221,19 @@ class GitOpsRemediationEngine:
             current_revision=current_revision,
             target_revision=target_revision,
             reason=(
-                "A previous Argo CD deployment revision was "
-                "identified as the rollback candidate."
+                "Previous Argo CD deployment passed rollback-target "
+                "validation and is eligible for dry-run remediation."
             ),
+            validation=validation,
             metadata={
                 "application": ARGOCD_APPLICATION,
                 "argocd_namespace": ARGOCD_NAMESPACE,
-                "history_id": previous.get("id"),
-                "deployed_at": previous.get("deployedAt"),
-                "initiated_by": previous.get("initiatedBy"),
-                "source": previous.get("source"),
+                "current_history_id": current_entry.get("id")
+                if current_entry
+                else None,
+                "target_history_id": target_entry.get("id"),
+                "target_deployed_at": target_entry.get("deployedAt"),
+                "target_initiated_by": target_entry.get("initiatedBy"),
+                "target_source": target_entry.get("source"),
             },
         )

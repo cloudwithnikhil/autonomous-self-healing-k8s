@@ -23,7 +23,7 @@ spec:
 
       containers:
         - name: aiops
-          image: self-healing-aiops:v8
+          image: self-healing-aiops:v9
           imagePullPolicy: IfNotPresent
 
           env:

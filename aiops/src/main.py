@@ -143,6 +143,7 @@ async def alertmanager_webhook(request: Request):
                             "current_revision": remediation.current_revision,
                             "target_revision": remediation.target_revision,
                             "reason": remediation.reason,
+                            "validation": remediation.validation,
                             "metadata": remediation.metadata,
                         }
 
