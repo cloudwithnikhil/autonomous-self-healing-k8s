@@ -1,0 +1,25 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: self-healing-api-rules
+  namespace: monitoring
+  labels:
+    release: prometheus
+spec:
+  groups:
+    - name: self-healing-api
+      rules:
+        - alert: SelfHealingAPIHighErrorRate
+          expr: |
+            (
+              sum(rate(http_requests_total{namespace="self-healing",status="500"}[2m]))
+              /
+              sum(rate(http_requests_total{namespace="self-healing"}[2m]))
+            ) > 0.05
+          for: 2m
+          labels:
+            severity: critical
+            service: self-healing-api
+          annotations:
+            summary: "Self-healing API has a high HTTP error rate"
+            description: "HTTP 500 error rate for self-healing-api has exceeded 5% for more than 2 minutes."

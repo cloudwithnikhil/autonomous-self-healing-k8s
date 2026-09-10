@@ -9,3 +9,6 @@ __pycache__/
 *.log
 
 .kube/
+
+# Local Kubernetes credentials
+aiops/docker-kubeconfig.yaml

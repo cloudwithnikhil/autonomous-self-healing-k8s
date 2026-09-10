@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: self-healing-api
+  namespace: self-healing
+  labels:
+    app: self-healing-api
+spec:
+  selector:
+    app: self-healing-api
+
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+
+  type: ClusterIP

@@ -1,0 +1,15 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: self-healing-api
+  namespace: self-healing
+  labels:
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: self-healing-api
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
