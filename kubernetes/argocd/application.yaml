@@ -1,0 +1,28 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: self-healing
+  namespace: argocd
+
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/cloudwithnikhil/autonomous-self-healing-k8s.git
+    targetRevision: main
+    path: helm/self-healing
+
+    helm:
+      releaseName: self-healing
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: self-healing
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+
+    syncOptions:
+      - CreateNamespace=true
