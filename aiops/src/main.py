@@ -45,6 +45,7 @@ def health():
 async def wait_for_recovery(
     current_revision: str,
     target_revision: str,
+    expected_revision: str,
 ) -> dict:
     deadline = time.monotonic() + RECOVERY_TIMEOUT_SECONDS
 
@@ -61,7 +62,7 @@ async def wait_for_recovery(
 
         revision_ok = (
             deployed_revision is not None
-            and deployed_revision != current_revision
+            and deployed_revision == expected_revision
         )
 
         try:
@@ -88,10 +89,11 @@ async def wait_for_recovery(
 
         logger.info(
             "Recovery check: sync=%s revision_ok=%s "
-            "revision=%s error_rate=%s recovered=%s",
+            "revision=%s expected_revision=%s error_rate=%s recovered=%s",
             state["sync_status"],
             revision_ok,
-            state["last_successful_revision"],
+            deployed_revision,
+            expected_revision,
             error_rate,
             recovery_ok,
         )
@@ -103,6 +105,7 @@ async def wait_for_recovery(
                 "error_rate": error_rate,
                 "original_revision": current_revision,
                 "rollback_target_revision": target_revision,
+                "expected_deployed_revision": expected_revision,
                 "deployed_revision": deployed_revision,
             }
         await asyncio.sleep(RECOVERY_POLL_SECONDS)
@@ -270,7 +273,7 @@ async def alertmanager_webhook(request: Request):
                             ] = dispatch_result
 
                             logger.info(
-                                "GitHub Actions workflow dispatched: %s",
+                                "GitHub Actions remediation completed: %s",
                                 dispatch_result,
                             )
 
@@ -278,11 +281,18 @@ async def alertmanager_webhook(request: Request):
                             # Stage 2G: Post-remediation recovery
                             # -----------------------------------------
                             if not remediation.dry_run:
+                                rollback_revision = dispatch_result.get("rollback_revision")
+
+                                if not rollback_revision:
+                                    raise RuntimeError(
+                                        "GitHub Actions did not return a rollback revision"
+                                    )
+
                                 recovery = await wait_for_recovery(
                                     current_revision=remediation.current_revision,
                                     target_revision=remediation.target_revision,
+                                    expected_revision=rollback_revision,
                                 )
-
                                 incident["remediation"][
                                     "recovery"
                                 ] = recovery
