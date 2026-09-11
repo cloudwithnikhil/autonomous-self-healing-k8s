@@ -1,8 +1,14 @@
 # Autonomous Self-Healing Kubernetes
 
+![Autonomous Self-Healing Kubernetes](docs/kubernetes-self-healing-banner.png)
+
 An autonomous Kubernetes incident-response platform that detects application failures, analyzes telemetry and cluster state, makes confidence-based remediation decisions, performs GitOps rollback through GitHub Actions, lets Argo CD reconcile the cluster, and independently verifies recovery with Prometheus.
 
 ## Architecture
+
+
+![Architecture](docs/autonomous_self_healing_k8s_architecture.png)
+
 
 ```text
                        ┌──────────────────────┐
@@ -149,6 +155,8 @@ autonomous-self-healing-k8s/
 ```
 
 ## How the Self-Healing Loop Works
+
+![Incident Lifecycle](docs/incident_lifecycle_sequence_diagram.png)
 
 ### 1. Application regression
 
