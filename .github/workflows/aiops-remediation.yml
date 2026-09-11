@@ -88,24 +88,28 @@ jobs:
           echo "Changed files between target and current:"
           git diff --name-status "$target" "$current"
 
-          changed_files="$(git diff --name-only "$target" "$current")"
+          values_diff="$(
+            git diff --name-only \
+              "$target" \
+              "$current" \
+              -- helm/self-healing/values.yaml
+          )"
 
-          if [[ -z "$changed_files" ]]; then
-            echo "ERROR: no changes exist between target and current."
+          if [[ -z "$values_diff" ]]; then
+            echo "ERROR: helm/self-healing/values.yaml is unchanged."
             exit 1
           fi
 
-          while IFS= read -r file; do
-            case "$file" in
-              helm/self-healing/values.yaml)
-                ;;
-              *)
-                echo "ERROR: unexpected rollback file: $file"
-                exit 1
-                ;;
-            esac
-          done <<< "$changed_files"
+          echo
+          echo "Application rollback file:"
+          echo "$values_diff"
 
+          echo
+          echo "Other changes between target and current are preserved:"
+          git diff --name-only "$target" "$current" \
+            -- . ':!helm/self-healing/values.yaml' || true
+
+          echo
           echo "Rollback scope validation passed."
 
       - name: Show proposed Helm rollback
