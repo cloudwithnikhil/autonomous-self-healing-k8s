@@ -42,7 +42,10 @@ def health():
     }
 
 
-async def wait_for_recovery(target_revision: str) -> dict:
+async def wait_for_recovery(
+    current_revision: str,
+    target_revision: str,
+) -> dict:
     deadline = time.monotonic() + RECOVERY_TIMEOUT_SECONDS
 
     while time.monotonic() < deadline:
@@ -54,8 +57,11 @@ async def wait_for_recovery(target_revision: str) -> dict:
             and state["operation_phase"] == "Succeeded"
         )
 
+        deployed_revision = state["last_successful_revision"]
+
         revision_ok = (
-            state["last_successful_revision"] == target_revision
+            deployed_revision is not None
+            and deployed_revision != current_revision
         )
 
         try:
@@ -95,8 +101,10 @@ async def wait_for_recovery(target_revision: str) -> dict:
                 "status": "RECOVERED",
                 "argocd": state,
                 "error_rate": error_rate,
+                "original_revision": current_revision,
+                "rollback_target_revision": target_revision,
+                "deployed_revision": deployed_revision,
             }
-
         await asyncio.sleep(RECOVERY_POLL_SECONDS)
 
     return {
@@ -271,7 +279,8 @@ async def alertmanager_webhook(request: Request):
                             # -----------------------------------------
                             if not remediation.dry_run:
                                 recovery = await wait_for_recovery(
-                                    remediation.target_revision
+                                    current_revision=remediation.current_revision,
+                                    target_revision=remediation.target_revision,
                                 )
 
                                 incident["remediation"][

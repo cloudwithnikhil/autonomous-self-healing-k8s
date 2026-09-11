@@ -149,6 +149,31 @@ jobs:
           echo "Resulting diff:"
           git diff -- helm/self-healing/values.yaml
 
+      - name: Verify restored Helm values
+        if: ${{ !inputs.dry_run }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          target="${{ inputs.target_revision }}"
+
+          if ! git diff --quiet "$target" -- helm/self-healing/values.yaml; then
+            echo "ERROR: restored Helm values do not match target revision."
+            git diff "$target" -- helm/self-healing/values.yaml
+            exit 1
+          fi
+
+          echo "Restored Helm values exactly match the validated target."
+
+      - name: Verify rollback content
+        if: ${{ !inputs.dry_run }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Rollback configuration:"
+          cat helm/self-healing/values.yaml
+
       - name: Configure Git
         if: ${{ !inputs.dry_run }}
         run: |
@@ -157,13 +182,45 @@ jobs:
 
       - name: Commit rollback
         if: ${{ !inputs.dry_run }}
+        shell: bash
         run: |
+          set -euo pipefail
+
           git add helm/self-healing/values.yaml
+
+          git diff --cached --name-status
 
           git commit \
             -m "revert: restore known-good self-healing configuration"
 
+          echo "Rollback commit SHA:"
+          git rev-parse HEAD
+
+      - name: Verify rollback commit
+        if: ${{ !inputs.dry_run }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rollback_commit="$(git rev-parse HEAD)"
+          target="${{ inputs.target_revision }}"
+          current="${{ inputs.current_revision }}"
+
+          echo "Rollback commit: $rollback_commit"
+          echo "Rollback target: $target"
+          echo "Original current: $current"
+
+          if [[ "$rollback_commit" == "$current" ]]; then
+            echo "ERROR: rollback commit did not create a new revision."
+            exit 1
+          fi
+
+          echo "Rollback commit validation passed."
+
       - name: Push rollback
         if: ${{ !inputs.dry_run }}
+        shell: bash
         run: |
+          set -euo pipefail
+
           git push origin "HEAD:${{ inputs.source_branch }}"
