@@ -10,7 +10,7 @@ image:
 
 app:
   version: v2
-  failureRate: "0"
+  failureRate: "0.50"
 
 service:
   type: ClusterIP
