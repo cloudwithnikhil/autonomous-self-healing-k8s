@@ -57,6 +57,28 @@ class GitOpsRemediationEngine:
             name=ARGOCD_APPLICATION,
         )
 
+    def get_application_state(self) -> dict[str, Any]:
+        application = self._get_application()
+
+        status = application.get("status", {})
+        operation_state = status.get("operationState", {}) or {}
+        sync_result = operation_state.get("syncResult", {}) or {}
+
+        return {
+            "sync_status": (
+                status.get("sync", {}).get("status")
+                if isinstance(status.get("sync"), dict)
+                else None
+            ),
+            "health_status": (
+                status.get("health", {}).get("status")
+                if isinstance(status.get("health"), dict)
+                else None
+            ),
+            "last_successful_revision": sync_result.get("revision"),
+            "operation_phase": operation_state.get("phase"),
+        }
+
     @staticmethod
     def _get_current_revision(
         application: dict[str, Any],

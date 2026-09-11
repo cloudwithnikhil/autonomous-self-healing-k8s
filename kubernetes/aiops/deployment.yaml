@@ -23,7 +23,7 @@ spec:
 
       containers:
         - name: aiops
-          image: self-healing-aiops:v12
+          image: self-healing-aiops:v13
           imagePullPolicy: IfNotPresent
 
           env:
@@ -53,6 +53,15 @@ spec:
 
             - name: GITHUB_WORKFLOW
               value: "aiops-remediation.yml"
+
+            - name: RECOVERY_TIMEOUT_SECONDS
+              value: "300"
+
+            - name: RECOVERY_POLL_SECONDS
+              value: "10"
+
+            - name: RECOVERY_ERROR_RATE_THRESHOLD
+              value: "0.05"
 
           ports:
             - name: http

@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
+import asyncio
 import logging
+import time
 
 from fastapi import FastAPI, Request
 
@@ -7,9 +9,13 @@ from .analyzer import PrometheusAnalyzer
 from .k8s_analyzer import KubernetesAnalyzer
 from .decision import DecisionEngine
 from .remediation import GitOpsRemediationEngine
-
 from .github_actions import GitHubActionsClient
-from .config import ARGOCD_SOURCE_BRANCH
+from .config import (
+    ARGOCD_SOURCE_BRANCH,
+    RECOVERY_ERROR_RATE_THRESHOLD,
+    RECOVERY_POLL_SECONDS,
+    RECOVERY_TIMEOUT_SECONDS,
+)
 
 app = FastAPI(
     title="Autonomous Self-Healing AIOps Controller",
@@ -33,6 +39,69 @@ def health():
         "status": "healthy",
         "service": "aiops-controller",
         "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+async def wait_for_recovery(target_revision: str) -> dict:
+    deadline = time.monotonic() + RECOVERY_TIMEOUT_SECONDS
+
+    while time.monotonic() < deadline:
+        state = remediation_engine.get_application_state()
+
+        sync_ok = (
+            state["sync_status"] == "Synced"
+            and state["health_status"] == "Healthy"
+            and state["operation_phase"] == "Succeeded"
+        )
+
+        revision_ok = (
+            state["last_successful_revision"] == target_revision
+        )
+
+        try:
+            analysis = await prometheus.analyze(
+                namespace="self-healing"
+            )
+
+            error_rate = analysis.get("error_rate")
+
+        except Exception as exc:
+            logger.exception(
+                "Recovery Prometheus check failed: %s",
+                exc,
+            )
+
+            error_rate = None
+
+        recovery_ok = (
+            sync_ok
+            and revision_ok
+            and error_rate is not None
+            and error_rate < RECOVERY_ERROR_RATE_THRESHOLD
+        )
+
+        logger.info(
+            "Recovery check: sync=%s revision_ok=%s "
+            "revision=%s error_rate=%s recovered=%s",
+            state["sync_status"],
+            revision_ok,
+            state["last_successful_revision"],
+            error_rate,
+            recovery_ok,
+        )
+
+        if recovery_ok:
+            return {
+                "status": "RECOVERED",
+                "argocd": state,
+                "error_rate": error_rate,
+            }
+
+        await asyncio.sleep(RECOVERY_POLL_SECONDS)
+
+    return {
+        "status": "RECOVERY_TIMEOUT",
+        "argocd": remediation_engine.get_application_state(),
     }
 
 
@@ -163,7 +232,8 @@ async def alertmanager_webhook(request: Request):
                         }
 
                         logger.info(
-                            "Remediation plan: action=%s dry_run=%s current=%s target=%s",
+                            "Remediation plan: action=%s dry_run=%s "
+                            "current=%s target=%s",
                             remediation.action,
                             remediation.dry_run,
                             remediation.current_revision,
@@ -195,6 +265,23 @@ async def alertmanager_webhook(request: Request):
                                 "GitHub Actions workflow dispatched: %s",
                                 dispatch_result,
                             )
+
+                            # -----------------------------------------
+                            # Stage 2G: Post-remediation recovery
+                            # -----------------------------------------
+                            if not remediation.dry_run:
+                                recovery = await wait_for_recovery(
+                                    remediation.target_revision
+                                )
+
+                                incident["remediation"][
+                                    "recovery"
+                                ] = recovery
+
+                                logger.info(
+                                    "Recovery verification: %s",
+                                    recovery,
+                                )
 
                     except Exception as exc:
                         logger.exception(
