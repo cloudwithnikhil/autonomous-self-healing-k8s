@@ -54,8 +54,17 @@ spec:
             - name: GITHUB_WORKFLOW
               value: "aiops-remediation.yml"
 
+            - name: GITHUB_WORKFLOW_TIMEOUT_SECONDS
+              value: "180"
+
+            - name: GITHUB_WORKFLOW_POLL_SECONDS
+              value: "5"
+
+            - name: GITHUB_BRANCH_ADVANCE_TIMEOUT_SECONDS
+              value: "120"
+
             - name: RECOVERY_TIMEOUT_SECONDS
-              value: "300"
+              value: "600"
 
             - name: RECOVERY_POLL_SECONDS
               value: "10"
