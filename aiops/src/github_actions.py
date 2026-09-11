@@ -38,7 +38,7 @@ class GitHubActionsClient:
         }
 
         payload = {
-            "ref": "main",
+            "ref": source_branch,
             "inputs": {
                 "source_branch": source_branch,
                 "current_revision": current_revision,
