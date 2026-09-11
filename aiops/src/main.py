@@ -8,9 +8,12 @@ from .k8s_analyzer import KubernetesAnalyzer
 from .decision import DecisionEngine
 from .remediation import GitOpsRemediationEngine
 
+from .github_actions import GitHubActionsClient
+from .config import ARGOCD_SOURCE_BRANCH
+
 app = FastAPI(
-title="Autonomous Self-Healing AIOps Controller",
-version="0.5.0",
+    title="Autonomous Self-Healing AIOps Controller",
+    version="0.5.0",
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -21,14 +24,17 @@ prometheus = PrometheusAnalyzer()
 kubernetes = KubernetesAnalyzer()
 decision_engine = DecisionEngine()
 remediation_engine = GitOpsRemediationEngine()
+github_actions = GitHubActionsClient()
+
 
 @app.get("/health")
 def health():
     return {
-    "status": "healthy",
-    "service": "aiops-controller",
-    "timestamp": datetime.now(timezone.utc).isoformat(),
+        "status": "healthy",
+        "service": "aiops-controller",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+
 
 @app.post("/webhook/alertmanager")
 async def alertmanager_webhook(request: Request):
@@ -93,7 +99,8 @@ async def alertmanager_webhook(request: Request):
                 incident["analysis_error"] = str(exc)
 
             # -----------------------------------------
-            # Stage 2C: Kubernetes analysis
+            # Stage 2C + 2D: Kubernetes analysis
+            # + confidence-based decision
             # -----------------------------------------
             try:
                 k8s_analysis = kubernetes.analyze(
@@ -109,9 +116,6 @@ async def alertmanager_webhook(request: Request):
                     k8s_analysis,
                 )
 
-                # -----------------------------------------
-                # Stage 2D: Confidence-based decision
-                # -----------------------------------------
                 error_rate = None
 
                 if "analysis" in incident:
@@ -130,6 +134,17 @@ async def alertmanager_webhook(request: Request):
                     "confidence": decision.confidence,
                     "reasons": decision.reasons,
                 }
+
+                logger.info(
+                    "Decision: %s confidence=%.3f",
+                    decision.decision,
+                    decision.confidence,
+                )
+
+                # -----------------------------------------
+                # Stage 2E: GitOps remediation planning
+                # + GitHub Actions workflow dispatch
+                # -----------------------------------------
                 if (
                     decision.decision == "RECOMMEND_ROLLBACK"
                     and decision.confidence >= 0.80
@@ -155,19 +170,39 @@ async def alertmanager_webhook(request: Request):
                             remediation.target_revision,
                         )
 
+                        # -----------------------------------------
+                        # Stage 2F: GitHub Actions GitOps dispatch
+                        # -----------------------------------------
+                        if (
+                            remediation.action == "ROLLBACK_PROPOSED"
+                            and remediation.target_revision
+                            and remediation.current_revision
+                        ):
+                            dispatch_result = (
+                                await github_actions.dispatch_workflow(
+                                    source_branch=ARGOCD_SOURCE_BRANCH,
+                                    current_revision=remediation.current_revision,
+                                    target_revision=remediation.target_revision,
+                                    dry_run=remediation.dry_run,
+                                )
+                            )
+
+                            incident["remediation"][
+                                "workflow_dispatch"
+                            ] = dispatch_result
+
+                            logger.info(
+                                "GitHub Actions workflow dispatched: %s",
+                                dispatch_result,
+                            )
+
                     except Exception as exc:
                         logger.exception(
-                            "Remediation planning failed: %s",
+                            "Remediation execution failed: %s",
                             exc,
                         )
 
                         incident["remediation_error"] = str(exc)
-
-                logger.info(
-                    "Decision: %s confidence=%.3f",
-                    decision.decision,
-                    decision.confidence,
-                )
 
             except Exception as exc:
                 logger.exception(
@@ -177,6 +212,9 @@ async def alertmanager_webhook(request: Request):
 
                 incident["kubernetes_analysis_error"] = str(exc)
 
+        # -----------------------------------------
+        # Add completed incident to response
+        # -----------------------------------------
         incidents.append(incident)
 
     return {
@@ -184,4 +222,3 @@ async def alertmanager_webhook(request: Request):
         "alerts_received": len(alerts),
         "incidents": incidents,
     }
-

@@ -23,7 +23,7 @@ spec:
 
       containers:
         - name: aiops
-          image: self-healing-aiops:v9
+          image: self-healing-aiops:v12
           imagePullPolicy: IfNotPresent
 
           env:
@@ -38,6 +38,21 @@ spec:
 
             - name: ARGOCD_APPLICATION
               value: "self-healing"
+
+            - name: ARGOCD_SOURCE_BRANCH
+              value: "test/broken-release"
+
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: aiops-github
+                  key: GITHUB_TOKEN
+
+            - name: GITHUB_REPOSITORY
+              value: "cloudwithnikhil/autonomous-self-healing-k8s"
+
+            - name: GITHUB_WORKFLOW
+              value: "aiops-remediation.yml"
 
           ports:
             - name: http

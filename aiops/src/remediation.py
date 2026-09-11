@@ -29,7 +29,7 @@ class GitOpsRemediationEngine:
     Phase 4B.1:
     - Reads the Argo CD Application.
     - Reads deployment history.
-    - Identifies the previous deployment.
+    - Identifies the previous successful deployment.
     - Validates the rollback candidate.
     - Produces an auditable rollback proposal.
 
@@ -61,12 +61,20 @@ class GitOpsRemediationEngine:
     def _get_current_revision(
         application: dict[str, Any],
     ) -> str | None:
-        return (
-            application
-            .get("status", {})
-            .get("sync", {})
-            .get("revision")
-        )
+        """
+        Return the Git revision that was successfully deployed.
+
+        Argo CD may report a newer observed/source revision under
+        status.sync.revision while the cluster is still running the
+        previously successful deployment. For remediation, we need the
+        revision that was actually synced successfully.
+        """
+        status = application.get("status", {})
+
+        operation_state = status.get("operationState", {}) or {}
+        sync_result = operation_state.get("syncResult", {}) or {}
+
+        return sync_result.get("revision")
 
     @staticmethod
     def _get_history(
@@ -96,18 +104,29 @@ class GitOpsRemediationEngine:
         history: list[dict[str, Any]],
         current_revision: str,
     ) -> dict[str, Any] | None:
-        candidates = [
-            entry
-            for entry in history
-            if entry.get("revision")
-            and entry.get("revision") != current_revision
-        ]
+        """
+        Return the deployment immediately preceding the current deployment.
 
-        if not candidates:
+        Argo CD history is ordered chronologically, with the newest
+        deployment at the end.
+        """
+        current_index = None
+
+        for index, entry in enumerate(history):
+            if entry.get("revision") == current_revision:
+                current_index = index
+                break
+
+        if current_index is None or current_index == 0:
             return None
 
-        # Argo CD history is ordered by deployment history.
-        return candidates[-1]
+        for index in range(current_index - 1, -1, -1):
+            entry = history[index]
+
+            if entry.get("revision"):
+                return entry
+
+        return None
 
     @staticmethod
     def _validate_target(
@@ -153,7 +172,7 @@ class GitOpsRemediationEngine:
                 current_revision=None,
                 target_revision=None,
                 reason=(
-                    "Argo CD does not report a current sync revision."
+                    "Argo CD does not report a last successful sync revision."
                 ),
                 validation={
                     "current_revision_exists": False,
@@ -228,9 +247,11 @@ class GitOpsRemediationEngine:
             metadata={
                 "application": ARGOCD_APPLICATION,
                 "argocd_namespace": ARGOCD_NAMESPACE,
-                "current_history_id": current_entry.get("id")
-                if current_entry
-                else None,
+                "current_history_id": (
+                    current_entry.get("id")
+                    if current_entry
+                    else None
+                ),
                 "target_history_id": target_entry.get("id"),
                 "target_deployed_at": target_entry.get("deployedAt"),
                 "target_initiated_by": target_entry.get("initiatedBy"),

@@ -1,14 +1,12 @@
 __pycache__/
+*.py[cod]
 *.pyc
 .venv/
 .env
 .idea/
 .vscode/
 .DS_Store
-
 *.log
-
 .kube/
-
 # Local Kubernetes credentials
 aiops/docker-kubeconfig.yaml
