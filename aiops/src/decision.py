@@ -65,12 +65,12 @@ class DecisionEngine:
 
         if total_restarts == 0:
             score += 0.10
-            reasons.append(
-                "No pod restart or crash evidence detected"
-            )
+            reasons.append("No pod restart or crash evidence detected")
         else:
             reasons.append(
-                f"{total_restarts} pod/container restarts detected"
+                f"{total_restarts} pod/container restarts detected; "
+                "restart history alone is not sufficient to classify the "
+                "incident as infrastructure failure"
             )
 
         # 5. Application-level failure with healthy infrastructure.
@@ -78,12 +78,12 @@ class DecisionEngine:
             error_rate is not None
             and error_rate > ERROR_RATE_THRESHOLD
             and ready == desired
-            and total_restarts == 0
         ):
             score += 0.20
             reasons.append(
                 "Evidence indicates an application-level regression "
-                "rather than infrastructure failure"
+                "because the error rate is elevated while all desired "
+                "replicas remain healthy"
             )
 
         confidence = max(0.0, min(score, 1.0))

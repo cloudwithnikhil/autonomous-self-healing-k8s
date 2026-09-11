@@ -9,7 +9,7 @@ image:
   pullPolicy: IfNotPresent
 
 app:
-  version: v1
+  version: v2
   failureRate: "0"
 
 service:

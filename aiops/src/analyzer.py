@@ -51,13 +51,16 @@ class PrometheusAnalyzer:
 
     async def get_error_rate(self, namespace: str):
         query = f"""
-            sum(
-                rate(
-                    http_requests_total{{
-                        namespace="{namespace}",
-                        status="500"
-                    }}[2m]
+            (
+                sum(
+                    rate(
+                        http_requests_total{{
+                            namespace="{namespace}",
+                            status="500"
+                        }}[2m]
+                    )
                 )
+                or vector(0)
             )
             /
             sum(
@@ -102,6 +105,13 @@ class PrometheusAnalyzer:
         error_rate = await self.get_error_rate(namespace)
         error_rate_500 = await self.get_http_500_rate(namespace)
         total_request_rate = await self.get_total_request_rate(namespace)
+
+        if total_request_rate is not None and total_request_rate > 0:
+            if error_rate is None:
+                error_rate = 0.0
+
+            if error_rate_500 is None:
+                error_rate_500 = 0.0
 
         return {
             "namespace": namespace,
