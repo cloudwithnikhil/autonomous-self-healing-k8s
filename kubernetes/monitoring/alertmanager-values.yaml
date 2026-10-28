@@ -1,0 +1,24 @@
+# Helm values for kube-prometheus-stack: route the alert to the AIOps controller.
+# Usage: helm install prometheus prometheus-community/kube-prometheus-stack \
+#          -n monitoring --create-namespace -f kubernetes/monitoring/alertmanager-values.yaml
+alertmanager:
+  config:
+    route:
+      receiver: "null"
+      group_by: ["alertname", "service"]
+      group_wait: 10s
+      group_interval: 1m
+      repeat_interval: 1h
+      routes:
+        - receiver: "null"
+          matchers:
+            - alertname = "Watchdog"
+        - receiver: aiops-controller
+          matchers:
+            - alertname = "SelfHealingAPIHighErrorRate"
+    receivers:
+      - name: "null"
+      - name: aiops-controller
+        webhook_configs:
+          - url: http://aiops-controller.self-healing.svc.cluster.local:8001/webhook/alertmanager
+            send_resolved: false

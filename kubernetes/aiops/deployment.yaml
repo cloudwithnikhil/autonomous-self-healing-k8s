@@ -40,7 +40,7 @@ spec:
               value: "self-healing"
 
             - name: ARGOCD_SOURCE_BRANCH
-              value: "test/broken-release"
+              value: "main"
 
             - name: GITHUB_TOKEN
               valueFrom:

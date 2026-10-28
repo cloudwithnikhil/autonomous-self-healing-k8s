@@ -1,3 +1,12 @@
+# Replaces kubernetes/aiops/rbac.yaml.
+# The original granted access to Argo CD Applications only and never created the
+# ServiceAccount, nor the permissions KubernetesAnalyzer needs (deployments/pods).
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: aiops-controller
+  namespace: self-healing
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -5,14 +14,9 @@ metadata:
   name: aiops-argocd-reader
   namespace: argocd
 rules:
-  - apiGroups:
-      - argoproj.io
-    resources:
-      - applications
-    verbs:
-      - get
-      - list
-
+  - apiGroups: ["argoproj.io"]
+    resources: ["applications"]
+    verbs: ["get", "list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -27,3 +31,30 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
   name: aiops-argocd-reader
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: aiops-workload-reader
+  namespace: self-healing
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: aiops-workload-reader
+  namespace: self-healing
+subjects:
+  - kind: ServiceAccount
+    name: aiops-controller
+    namespace: self-healing
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: aiops-workload-reader
