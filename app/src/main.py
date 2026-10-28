@@ -1,5 +1,5 @@
 import os
-import random
+import secrets
 import time
 
 from fastapi import FastAPI, Response
@@ -45,7 +45,7 @@ def orders():
     if version == "v2":
         failure_rate = float(os.getenv("FAILURE_RATE", "0.10"))
 
-        if random.random() < failure_rate:
+        if secrets.SystemRandom().random() < failure_rate:
             REQUEST_COUNT.labels(
                 method="GET",
                 endpoint="/api/orders",
