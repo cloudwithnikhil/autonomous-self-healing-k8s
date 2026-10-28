@@ -58,9 +58,11 @@ jobs:
       - name: Build image
         run: docker build -t ${{ matrix.name }}:ci ${{ matrix.context }}
 
+
       - name: Trivy scan
         uses: aquasecurity/trivy-action@v0.36.0
         with:
+          version: v0.76.1
           image-ref: ${{ matrix.name }}:ci
           severity: CRITICAL,HIGH
           ignore-unfixed: true
