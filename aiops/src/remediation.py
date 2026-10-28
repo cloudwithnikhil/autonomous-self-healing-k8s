@@ -1,8 +1,9 @@
 from dataclasses import dataclass
 from typing import Any
 
-from kubernetes import client, config
 from kubernetes.config.config_exception import ConfigException
+
+from kubernetes import client, config
 
 from .config import (
     AIOPS_DRY_RUN,

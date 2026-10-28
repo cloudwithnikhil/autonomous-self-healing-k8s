@@ -1,21 +1,21 @@
-from datetime import datetime, timezone
 import asyncio
 import logging
 import time
+from datetime import UTC, datetime
 
 from fastapi import FastAPI, Request
 
 from .analyzer import PrometheusAnalyzer
-from .k8s_analyzer import KubernetesAnalyzer
-from .decision import DecisionEngine
-from .remediation import GitOpsRemediationEngine
-from .github_actions import GitHubActionsClient
 from .config import (
     ARGOCD_SOURCE_BRANCH,
     RECOVERY_ERROR_RATE_THRESHOLD,
     RECOVERY_POLL_SECONDS,
     RECOVERY_TIMEOUT_SECONDS,
 )
+from .decision import DecisionEngine
+from .github_actions import GitHubActionsClient
+from .k8s_analyzer import KubernetesAnalyzer
+from .remediation import GitOpsRemediationEngine
 
 app = FastAPI(
     title="Autonomous Self-Healing AIOps Controller",
@@ -38,7 +38,7 @@ def health():
     return {
         "status": "healthy",
         "service": "aiops-controller",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
 
 
@@ -72,11 +72,8 @@ async def wait_for_recovery(
 
             error_rate = analysis.get("error_rate")
 
-        except Exception as exc:
-            logger.exception(
-                "Recovery Prometheus check failed: %s",
-                exc,
-            )
+        except Exception:
+            logger.exception("Recovery Prometheus check failed")
 
             error_rate = None
 
@@ -171,11 +168,7 @@ async def alertmanager_webhook(request: Request):
                 )
 
             except Exception as exc:
-                logger.exception(
-                    "Prometheus analysis failed: %s",
-                    exc,
-                )
-
+                logger.exception("Prometheus analysis failed")
                 incident["analysis_error"] = str(exc)
 
             # -----------------------------------------
@@ -303,18 +296,12 @@ async def alertmanager_webhook(request: Request):
                                 )
 
                     except Exception as exc:
-                        logger.exception(
-                            "Remediation execution failed: %s",
-                            exc,
-                        )
+                        logger.exception("Remediation execution failed")
 
                         incident["remediation_error"] = str(exc)
 
             except Exception as exc:
-                logger.exception(
-                    "Kubernetes analysis or decision evaluation failed: %s",
-                    exc,
-                )
+                logger.exception("Kubernetes analysis or decision evaluation failed")
 
                 incident["kubernetes_analysis_error"] = str(exc)
 

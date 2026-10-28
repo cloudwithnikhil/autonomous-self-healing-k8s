@@ -1,6 +1,6 @@
 import asyncio
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
 
@@ -65,9 +65,7 @@ class GitHubActionsClient:
 
     @staticmethod
     def _parse_github_timestamp(value: str) -> datetime:
-        return datetime.fromisoformat(
-            value.replace("Z", "+00:00")
-        )
+        return datetime.fromisoformat(value)
 
     async def _wait_for_workflow_run(
         self,
@@ -223,7 +221,7 @@ class GitHubActionsClient:
             },
         }
 
-        dispatched_at = datetime.now(timezone.utc)
+        dispatched_at = datetime.now(UTC)
 
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(
